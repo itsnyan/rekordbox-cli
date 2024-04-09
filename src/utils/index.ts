@@ -11,19 +11,42 @@ interface Track {
     Location: string;
 }
 
-export function writeToFile(filename: string, data: string, callback: (error: NodeJS.ErrnoException | null) => void): void {
+export const log = console.log;
+
+/**
+ * @param filePath 
+ * @returns playlists and tracks mapped to it's track information - extracted from the XML file
+ */
+
+export async function parseXML(filePath: string): Promise<{ playlists: any[], tracks: any[] }> {
+    const xmlData = await fs.promises.readFile(filePath, 'utf8');
+    const json = JSON.parse(xml2json(xmlData));
+
+    const { tracks = [], playlists = [] } = extractTracksAndPlaylists(json);
+    const trackMap: Map<string, Track> = new Map();
+    
+    tracks.forEach((track: Track) => {
+        trackMap.set(track.TrackID, track);
+    });
+
+    const mappedPlaylist = mapPlaylistToTracks(trackMap, playlists);
+
+    return { playlists: mappedPlaylist, tracks };
+}
+
+export function writeToFile(filename: string, data: string): void {
     fs.writeFile(filename, data, 'utf8', (err: NodeJS.ErrnoException | null) => {
         if (err) {
-            console.error("Error writing to file:", err);
-            callback(err);
+            log(chalk.red("Error writing to file:", err));
+            return;
         } else {
-            console.log("Data written to", filename);
-            callback(null);
+            log(chalk.green("Data written to", filename));
+            return;
         }
     });
 }
 
-export async function handleFilePath(): Promise<void> {
+export async function handleBackup(): Promise<void> {
     try {
         const { filePath } = await prompt.get<{ filePath: string }>([
             {
@@ -46,14 +69,16 @@ export async function handleFilePath(): Promise<void> {
             throw new Error('File not found or is not a file.');
         }
 
-        console.log('File found, processing...');
+        log(chalk.green('File found, processing...'));
 
-        const { playlists, tracks } = await backupHandler(filePath);
+        const { playlists = [], tracks = [] } = await parseXML(filePath);
 
         const folderPath = await promptFolderSelection();
 
-        console.log('Folder selected:', folderPath);
-        console.log('Backing up playlists into the selected folder...');
+        log(chalk.greenBright('folderPath:', folderPath))
+
+        writeToFile('playlists.json', JSON.stringify(playlists));
+        writeToFile('tracks.json', JSON.stringify(tracks));
 
         // todo: run createBackup function with filePath and folderPath
     } catch (error) {
@@ -88,7 +113,7 @@ function extractTracksAndPlaylists(json: any): { tracks: Track[], playlists: any
     return { tracks, playlists };
 }
 
-function resolveTracks(trackMap: Map<string, Track>, playlists: any[]): any[] {
+function mapPlaylistToTracks(trackMap: Map<string, Track>, playlists: any[]): any[] {
     return playlists.map((playlist: any) => {
         const mappedTracks = playlist.tracks
             .map((trackId: any) => trackMap.get(trackId))
@@ -98,21 +123,4 @@ function resolveTracks(trackMap: Map<string, Track>, playlists: any[]): any[] {
             return { ...playlist, tracks: mappedTracks };
         }
     });
-}
-
-export async function backupHandler(filePath: string): Promise<{ playlists: any[], tracks: any[] }> {
-    const xmlData = await fs.promises.readFile(filePath, 'utf8');
-    const json = JSON.parse(xml2json(xmlData));
-
-    const { tracks, playlists } = extractTracksAndPlaylists(json);
-
-    const trackMap: Map<string, Track> = new Map();
-    
-    tracks.forEach((track: Track) => {
-        trackMap.set(track.TrackID, track);
-    });
-
-    const mappedPlaylist = resolveTracks(trackMap, playlists);
-
-    return { playlists: mappedPlaylist, tracks };
 }

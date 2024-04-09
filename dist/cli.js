@@ -7,7 +7,7 @@ program
     .command('backup')
     .description('Backup your Rekordbox library')
     .action(function () {
-    (0, index_js_1.handleFilePath)();
+    (0, index_js_1.handleBackup)();
 });
 program.parse(process.argv);
 //# sourceMappingURL=cli.js.map
