@@ -1,7 +1,9 @@
-import * as fs from 'fs';
-import chalk, { Chalk } from 'chalk';
-import {xml2json} from "xml-js"
-import * as readline from 'readline';
+import fs from 'fs';
+import chalk from 'chalk';
+import { xml2json } from 'xml-js';
+import commander from 'commander';
+import { selectDirectory } from 'cli-file-select';
+import prompt from 'prompt';
 
 interface Track {
     Name: string;
@@ -9,65 +11,66 @@ interface Track {
     Location: string;
 }
 
-export function writeToFile(filename: string, data: string, callback?: (err: NodeJS.ErrnoException | null) => void): void {
-    fs.writeFile(filename, data, 'utf8', (err) => {
+export function writeToFile(filename: string, data: string, callback: (error: NodeJS.ErrnoException | null) => void): void {
+    fs.writeFile(filename, data, 'utf8', (err: NodeJS.ErrnoException | null) => {
         if (err) {
             console.error("Error writing to file:", err);
-            if (callback) {
-                callback(err);
-            }
+            callback(err);
         } else {
             console.log("Data written to", filename);
-            if (callback) {
-                callback(null);
-            }
+            callback(null);
         }
     });
-  }
-
-
-export function log(message: string, color: keyof Chalk): void {
-    const method = chalk[color] as (message: string) => string;
-    console.log(method(message));
 }
 
-export function handleFilePath(rl: readline.Interface) {
-    rl.question('📂 Enter the location path of the XML file: ', (filePath: string) => {
-        log('filePath', 'green');
-
-        if (!filePath) {
-            log('Please enter a valid file path!', 'red')
-            handleFilePath(rl);
-            return;
-        }
-
-        if (!filePath.endsWith('.xml')) {
-            log('Invalid file format, path must have a .xml extension!', 'red')
-            handleFilePath(rl);
-            return;
-        }
-
-        fs.stat(filePath, (err: NodeJS.ErrnoException | null, stats: fs.Stats | undefined) => {
-            if (err) {
-                if (err.code === 'ENOENT') {
-                    log('File not found, please enter a valid file path!', 'red');
-                    handleFilePath(rl);
-                } else {
-                    log('An error occurred, please try again!', 'red');
-                    rl.close();
-                }
-            } else {
-                if (stats && stats.isFile()) {
-                    log('File found, processing...', 'green');
-                    backupHandler(filePath);
-                    rl.close();
-                } else {
-                    log('An error occurred, please try again!', 'red');
-                    rl.close();
+export async function handleFilePath(): Promise<void> {
+    try {
+        const { filePath } = await prompt.get<{ filePath: string }>([
+            {
+                name: 'filePath',
+                description: '📂 Enter the location path of the XML file:',
+                required: true,
+                conform: (value: string) => {
+                    if (!value.trim().endsWith('.xml')) {
+                        console.error('Invalid file format, path must have a .xml extension!');
+                        return false;
+                    }
+                    return true;
                 }
             }
-        });
-    });
+        ]);
+
+        const stats = await fs.promises.stat(filePath);
+
+        if (!stats.isFile()) {
+            throw new Error('File not found or is not a file.');
+        }
+
+        console.log('File found, processing...');
+
+        const { playlists, tracks } = await backupHandler(filePath);
+
+        const folderPath = await promptFolderSelection();
+
+        console.log('Folder selected:', folderPath);
+        console.log('Backing up playlists into the selected folder...');
+
+        // todo: run createBackup function with filePath and folderPath
+    } catch (error) {
+        console.error('An error occurred:', error);
+        throw error;
+    }
+}
+
+async function promptFolderSelection(): Promise<string> {
+    try {
+        console.log('Select the folder where you want to save the backup:');
+        const folderPath = await selectDirectory();
+        return folderPath;
+    } catch (error) {
+        console.error('Error selecting folder:', error);
+        throw error;
+    }
 }
 
 function extractTracksAndPlaylists(json: any): { tracks: Track[], playlists: any[] } {
@@ -97,20 +100,19 @@ function resolveTracks(trackMap: Map<string, Track>, playlists: any[]): any[] {
     });
 }
 
-function backupHandler(filePath: string) {
-    const xmlData = fs.readFileSync(filePath, 'utf8');
+export async function backupHandler(filePath: string): Promise<{ playlists: any[], tracks: any[] }> {
+    const xmlData = await fs.promises.readFile(filePath, 'utf8');
     const json = JSON.parse(xml2json(xmlData));
 
     const { tracks, playlists } = extractTracksAndPlaylists(json);
 
     const trackMap: Map<string, Track> = new Map();
+    
     tracks.forEach((track: Track) => {
         trackMap.set(track.TrackID, track);
     });
 
     const mappedPlaylist = resolveTracks(trackMap, playlists);
 
-    console.log('mappedPlaylist', mappedPlaylist);
-
-    // todo - util to create new folders and copy/paste files from each track
+    return { playlists: mappedPlaylist, tracks };
 }
