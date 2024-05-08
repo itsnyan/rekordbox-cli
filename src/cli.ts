@@ -1,5 +1,5 @@
-import { Command } from "commander";
-import { handleBackup } from './utils/index.js'; 
+const { Command } = require('commander');
+const { handleBackup } = require('./utils/index.js');
 
 const program = new Command();
 
