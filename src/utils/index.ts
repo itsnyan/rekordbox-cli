@@ -1,9 +1,9 @@
-import fs from 'fs';
-import chalk from 'chalk';
-import { xml2json } from 'xml-js';
-import commander from 'commander';
-import { selectDirectory } from 'cli-file-select';
-import prompt from 'prompt';
+const fs = require('fs');
+const chalk = require('chalk');
+const { xml2json } = require('xml-js');
+const { selectDirectory } = require('cli-file-select');
+const inquirer = require('inquirer');
+const execa = require('execa');
 
 interface Track {
     Name: string;
@@ -48,15 +48,14 @@ export function writeToFile(filename: string, data: string): void {
 
 export async function handleBackup(): Promise<void> {
     try {
-        const { filePath } = await prompt.get<{ filePath: string }>([
+        const { filePath } = await inquirer.prompt([
             {
+                type: 'input',
                 name: 'filePath',
-                description: '📂 Enter the location path of the XML file:',
-                required: true,
-                conform: (value: string) => {
+                message: '📂 Enter the location path of the XML file:',
+                validate: (value) => {
                     if (!value.trim().endsWith('.xml')) {
-                        console.error('Invalid file format, path must have a .xml extension!');
-                        return false;
+                        return 'Invalid file format, path must have a .xml extension!';
                     }
                     return true;
                 }
@@ -64,6 +63,7 @@ export async function handleBackup(): Promise<void> {
         ]);
 
         const stats = await fs.promises.stat(filePath);
+
 
         if (!stats.isFile()) {
             throw new Error('File not found or is not a file.');
@@ -73,10 +73,13 @@ export async function handleBackup(): Promise<void> {
 
         const { playlists = [], tracks = [] } = await parseXML(filePath);
 
-        const folderPath = await promptFolderSelection();
+
+        const folderPath: string = await promptFolderSelection();
 
         log(chalk.greenBright('folderPath:', folderPath))
 
+        process.chdir(folderPath);
+        
         writeToFile('playlists.json', JSON.stringify(playlists));
         writeToFile('tracks.json', JSON.stringify(tracks));
 
